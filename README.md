@@ -1,2 +1,2 @@
-# NMF based reduction of Hubble STIS coronagraphic data
-NMF based code to reduce Hubble STIS coronagraphic data 
+# NMF based coronagraphic data reduction pipeline
+General instrument-agnostic pipeline upcoming
