@@ -1,5 +1,5 @@
 """
-NMF code modified to use kl_div by Sai Krishanth PM
+NMF code modified to use kl divergence (on cpus) by Sai Krishanth PM
 The original code is by Guangtun Ben Zhu (https://github.com/guangtunbenzhu/NonnegMFPy)
 and Bin Ren (https://github.com/seawander/nmf_imaging)
 For questions/comments, contact saikrishanth@arizona.edu 

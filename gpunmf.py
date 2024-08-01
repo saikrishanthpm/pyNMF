@@ -1,5 +1,5 @@
 """
-NMF code modified to work on (NVIDIA) GPUs by Sai Krishanth PM
+NMF code modified to use kl divergence (on GPUs) by Sai Krishanth PM
 The original code is by Guangtun Ben Zhu (https://github.com/guangtunbenzhu/NonnegMFPy)
 and Bin Ren (https://github.com/seawander/nmf_imaging)
 For questions/comments, contact saikrishanth@arizona.edu 
@@ -8,13 +8,14 @@ For questions/comments, contact saikrishanth@arizona.edu
 import cupy as cp
 from time import time
 from cupyx.scipy import sparse
-# Some magic numbers
+from cupyx.scipy.special import kl_div
+# Some magic numbes
 _largenumber = 1E100
 _smallnumber = 1E-5
 
 class NMF:
 
-    def __init__(self, X, W=None, H=None, V=None, M=None, n_components=5):
+    def __init__(self, X, W=None, H=None, M=None, n_components=5):
 
         # I'm making a copy for the safety of everything; should not be a bottleneck
         self.X = cp.copy(X) 
@@ -46,36 +47,21 @@ class NMF:
             print("There are negative values in H. Setting them to be zero...", flush=True)
             self.H[self.H<0] = 0.
 
-        if (V is None):
-            self.V = cp.ones(self.X.shape)
-        else:
-            if (V.shape != self.X.shape):
-                raise ValueError("Initial V(Weight) has wrong shape.")
-            self.V = cp.copy(V)
-        if (cp.count_nonzero(self.V<0)>0):
-            print("There are negative values in V. Setting them to be zero...", flush=True)
-            self.V[self.V<0] = 0.
-
         if (M is None):
-            self.M = cp.ones(self.X.shape, dtype=cp.bool)
+            self.M = cp.ones(self.X.shape, dtype=bool)
         else:
             if (M.shape != self.X.shape):
                 raise ValueError("M(ask) has wrong shape.")
-            if (M.dtype != cp.bool):
+            if (M.dtype != bool):
                 raise TypeError("M(ask) needs to be boolean.")
             self.M = cp.copy(M)
-
-        # Set masked elements to be zero
-        self.V[(self.V*self.M)<=0] = 0
-        self.V_size = cp.count_nonzero(self.V)
 
     @property
     def cost(self):
         """
         Total cost of a given set s
         """
-        diff = self.X - cp.dot(self.W, self.H)
-        chi2 = cp.einsum('ij,ij', self.V*diff, diff)/self.V_size
+        chi2 = cp.ma.masked_invalid(kl_div(self.X,cp.dot(self.W,self.H))).sum()
         return chi2
 
     def SolveNMF(self, W_only=False, H_only=False, sparsemode=False, maxiters=None, tol=None):
@@ -95,19 +81,11 @@ class NMF:
             return (chi2, 0.)
 
         if (sparsemode == True):
-            V = sparse.csr_matrix(self.V)
-            VT = sparse.csr_matrix(self.V.T)
             multiply = sparse.csr_matrix.multiply
             dot = sparse.csr_matrix.dot
         else:
-            V = cp.copy(self.V)
-            VT = V.T
             multiply = cp.multiply
             dot = cp.dot
-
-        #XV = self.X*self.V
-        XV = multiply(V, self.X)
-        XVT = multiply(VT, self.X.T)
 
         niter = 0
 
@@ -115,25 +93,21 @@ class NMF:
 
             # Update H
             if (not W_only):
-                H_up = dot(XVT, self.W)
-                WHVT = multiply(VT, cp.dot(self.W, self.H).T)
-                H_down = dot(WHVT, self.W)
-                self.H = self.H*H_up.T/H_down.T
+                H_up = self.W.T@(self.X/dot(self.W, self.H))
+                self.H = self.H*(H_up/(self.W.T@cp.ones(self.X.shape)))
 
             # Update W
             if (not H_only):
-                W_up = dot(XV, self.H.T)
-                WHV = multiply(V, cp.dot(self.W, self.H))
-                W_down = dot(WHV, self.H.T)
-                self.W = self.W*W_up/W_down
+                W_up = (self.X/dot(self.W, self.H))@self.H.T
+                self.W = self.W*(W_up/(cp.ones(self.X.shape)@self.H.T))
 
             # chi2
             oldchi2 = chi2
             chi2 = self.cost
 
             # Some quick check. May need its error class ...
-            if (not cp.isfinite(chi2)):
-                raise ValueError("NMF construction failed, likely due to missing data")
+            #if (not cp.isfinite(chi2)):
+                #raise ValueError("NMF construction failed, likely due to missing data")
 
             if (cp.mod(niter, 20)==0):
                 print("Current Chi2={0:.4f}, Previous Chi2={1:.4f}, Change={2:.4f}% @ niters={3}".format(chi2,oldchi2,(oldchi2-chi2)/oldchi2*100.,niter), flush=True)
@@ -213,13 +187,13 @@ def decolumnize(data, mask):
             
         return result
         
-def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiters = 1e3, oneByOne = False, path_save = None):
+def NMFcomponents(ref, mask = None, n_components = None, maxiters = 1e3, oneByOne = False, path_save = None):
     """ref and ref_err should be (n * height * width) where n is the number of references. Mask is the region we are interested in.
     if mask is a 3D array (binary, 0 and 1), then you can mask out different regions in the ref.
     if path_save is provided, then the code will star from there.
     """
-    if ref_err is None:
-        ref_err = cp.sqrt(ref)
+    #if ref_err is None:
+        #ref_err = cp.sqrt(ref)
     
     if mask is None:
         mask = cp.ones(ref.shape[1:])
@@ -231,15 +205,15 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
     mask[mask != 0] = 1    
     
     ref[ref < 0] = 0
-    ref_err[ref <= 0] = cp.percentile(ref_err, 95)*10 #Setting the err of <= 0 pixels to be max error to reduce their impact
+    #ref_err[ref <= 0] = cp.percentile(ref_err, 95)*10 #Setting the err of <= 0 pixels to be max error to reduce their impact
     
     if len(mask.shape) == 2:
         ref[cp.isnan(ref)] = 0
         ref[~cp.isfinite(ref)] = 0
-        ref_err[ref <= 0] = cp.percentile(ref_err, 95)*10 #handling bad values in 2D mask case
+        #ref_err[ref <= 0] = cp.percentile(ref_err, 95)*10 #handling bad values in 2D mask case
         
         ref_columnized = columnize(ref, mask = mask)
-        ref_err_columnized = columnize(ref_err, mask = mask)
+        #ref_err_columnized = columnize(ref_err, mask = mask)
     elif len(mask.shape) == 3: # ADI data imputation case, or the case where some regions must be masked out
         
         mask[ref <= 0] = 0
@@ -250,7 +224,7 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
         mask_mark[mask_mark != 0] = 1 # 1 means that there is coverage in at least one of the refs
         
         ref_columnized = columnize(ref, mask = mask_mark)
-        ref_err_columnized = columnize(ref_err, mask = mask_mark)        
+        #ref_err_columnized = columnize(ref_err, mask = mask_mark)        
         mask_columnized = cp.array(columnize(mask, mask = mask_mark), dtype = bool)
                 
     components_column = 0
@@ -263,7 +237,7 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
                     print("\t" + str(i+1) + " of " + str(n_components))
                     n = i + 1
                     if (i == 0):
-                        g_img = NMF(ref_columnized, V = 1.0/ref_err_columnized**2, n_components= n)
+                        g_img = NMF(ref_columnized, n_components= n)
                     else:
                         W_ini = cp.random.rand(ref_columnized.shape[0], n)
                         W_ini[:, :(n-1)] = cp.copy(g_img.W)
@@ -273,7 +247,7 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
                         H_ini[:(n-1), :] = cp.copy(g_img.H)
                         H_ini = cp.array(H_ini, order = 'C') #C ordering, row elements contiguous in memory.
                 
-                        g_img = NMF(ref_columnized, V = 1.0/ref_err_columnized**2, W = W_ini, H = H_ini, n_components= n)
+                        g_img = NMF(ref_columnized, W = W_ini, H = H_ini, n_components= n)
                     chi2 = g_img.SolveNMF(maxiters=maxiters)
             
                     components_column = g_img.W/cp.sqrt(cp.nansum(g_img.W**2, axis = 0)) #normalize the components
@@ -284,7 +258,7 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
                     print("\t" + str(i+1) + " of " + str(n_components))
                     n = i + 1
                     if (i == 0):
-                        g_img = NMF(ref_columnized, V = 1.0/ref_err_columnized**2, M = mask_columnized, n_components= n)
+                        g_img = NMF(ref_columnized, M = mask_columnized, n_components= n)
                     else:
                         W_ini = cp.random.rand(ref_columnized.shape[0], n)
                         W_ini[:, :(n-1)] = cp.copy(g_img.W)
@@ -294,7 +268,7 @@ def NMFcomponents(ref, ref_err = None, mask = None, n_components = None, maxiter
                         H_ini[:(n-1), :] = cp.copy(g_img.H)
                         H_ini = cp.array(H_ini, order = 'C') #C ordering, row elements contiguous in memory.
                 
-                        g_img = NMF(ref_columnized, V = 1.0/ref_err_columnized**2, W = W_ini, H = H_ini, M = mask_columnized, n_components= n)
+                        g_img = NMF(ref_columnized, W = W_ini, H = H_ini, M = mask_columnized, n_components= n)
                     chi2 = g_img.SolveNMF(maxiters=maxiters)
             
                     components_column = g_img.W/cp.sqrt(cp.nansum(g_img.W**2, axis = 0)) #normalize the components
@@ -333,7 +307,7 @@ def NMFmodelling(trg, components, n_components = None, trg_err = None, mask_comp
         trg_err = cp.sqrt(trg)
         
     trg[trg < trgThresh] = 0
-    trg_err = cp.nan_to_num(trg_err) #nanpercentile does not exis in cupy
+    trg_err = cp.nan_to_num(trg_err) #nacpercentile does not exis in cupy
     trg_err[trg == 0] = cp.percentile(trg_err, 95)*10
     
     components_column = columnize(components[:n_components], mask = mask)
@@ -347,7 +321,7 @@ def NMFmodelling(trg, components, n_components = None, trg_err = None, mask_comp
     trg_column = columnize(trg, mask = mask)
     trg_err_column = columnize(trg_err, mask = mask)
     if not cube:
-        trg_img = NMF(trg_column, V=1/trg_err_column**2, W=components_column, n_components = n_components)
+        trg_img = NMF(trg_column, W=components_column, n_components = n_components)
         (chi2, time_used) = trg_img.SolveNMF(H_only=True, maxiters = maxiters)
     
         coefs = trg_img.H
@@ -375,7 +349,7 @@ def NMFmodelling(trg, components, n_components = None, trg_err = None, mask_comp
         
         for i in range(n_components):
             print("\t" + str(i+1) + " of " + str(n_components))
-            trg_img = NMF(trg_column, V=1/trg_err_column**2, W=components_column[:, :i+1], n_components = i + 1)
+            trg_img = NMF(trg_column, W=components_column[:, :i+1], n_components = i + 1)
             (chi2, time_used) = trg_img.SolveNMF(H_only=True, maxiters = maxiters)
     
             coefs = trg_img.H
@@ -437,3 +411,4 @@ def NMFbff(trg, model, mask = None, fracs = None):
         std_info = cp.nanstd(data_slice)
         std_infos[i] = std_info
     return fracs[cp.where(std_infos == cp.nanmin(std_infos))]
+
