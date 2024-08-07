@@ -7,27 +7,11 @@ import pandas as pd
 import scipy.ndimage
 from multiprocess import Pool
 from mask import create_mask
+from badrefs import badrefs
 from astropy import wcs
 from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.utils.exceptions import AstropyWarning
-
-badrefs = ['o64w12040_flt.fits',
-           'o64w11010_flt.fits',
-           'o64w12020_flt.fits',
-           'o64wa2030_flt.fits',
-           'o64w12010_flt.fits',
-           'o64w12030_flt.fits',
-           'o64wa2020_flt.fits',
-           'o64wa2040_flt.fits',
-           'o64w11030_flt.fits',
-           'o64wa2010_flt.fits',
-           'o64wa1030_flt.fits',
-           'o64w11040_flt.fits',
-           'o64wa1020_flt.fits',
-           'o64wa1040_flt.fits',
-           'o64wa1010_flt.fits',
-           'o64w11020_flt.fits'] #These files have been manually noted to have incorrectly marked centers, specifically for the Wedge A1.0 occulter location. Other occulter locations will probably also have similarlay problematic files that can be entered here.
 
 trgdir = 'testfiles/' #Directory where the files corresponding to the target are located
 refdir = 'testfiles/' #Directory where the files corresponding to the reference are located
