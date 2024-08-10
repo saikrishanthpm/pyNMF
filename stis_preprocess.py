@@ -3,6 +3,7 @@ import math
 import warnings
 import radonCenter
 import numpy as np
+import configparser
 import pandas as pd
 import scipy.ndimage
 from multiprocess import Pool
@@ -13,9 +14,12 @@ from astropy.io import fits
 from astropy.nddata import Cutout2D
 from astropy.utils.exceptions import AstropyWarning
 
-trgdir = 'testfiles/' #Directory where the files corresponding to the target are located
-refdir = 'testfiles/' #Directory where the files corresponding to the reference are located
-trgname = 'LKCA-15' #Name of target, as noted in the 'TARGNAME' header of the fits file. 
+config = configparser.ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')] if len(x) > 0 else []})
+config.read('config.ini')
+
+trgdir = config.get('fileinfo', 'trgdir') #Directory where the files corresponding to the target are located
+refdir = config.get('fileinfo', 'refdir') #Directory where the files corresponding to the reference are located
+trgname = config.get('fileinfo', 'trgname') #Name of target, as noted in the 'TARGNAME' header of the fits file. 
 trgfiles = [] 
 
 for i in os.listdir(trgdir):
