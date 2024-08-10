@@ -1,0 +1,4 @@
+NMF future development ideas:
+1. Implement NMF with the Itakura-Saito divergence for spectral data analysis
+2. More aggressive NMF; go annulus by annulus and find the best corresponding match across the dataset for subtraction
+3. NMF ADI?
