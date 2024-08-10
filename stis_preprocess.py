@@ -17,22 +17,25 @@ from astropy.utils.exceptions import AstropyWarning
 config = configparser.ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')] if len(x) > 0 else []})
 config.read('config.ini')
 
+ncores = config.getint('compfacs', 'ncores')
+
 trgdir = config.get('fileinfo', 'trgdir') #Directory where the files corresponding to the target are located
 refdir = config.get('fileinfo', 'refdir') #Directory where the files corresponding to the reference are located
 trgname = config.get('fileinfo', 'trgname') #Name of target, as noted in the 'TARGNAME' header of the fits file. 
-trgfiles = [] 
+trgfiles = config.getlist('fileinfo', 'trgfiles')
+reffiles = config.getlist('fileinfo', 'reffiles')
 
-for i in os.listdir(trgdir):
-    path = trgdir+i
-    hdul = fits.open(path)
-    tname = hdul[0].header['TARGNAME']
-    if tname == trgname:
-        trgfiles.append(i) #By default, this selects every file in the given target directory that corresponds to the given target name. This can easily be changed to a list of files if one wants to look at specific epochs etc.
+if len(trgfiles) == 0:
+    for i in os.listdir(trgdir):
+        path = trgdir+i
+        hdul = fits.open(path)
+        tname = hdul[0].header['TARGNAME']
+        if tname == trgname:
+            trgfiles.append(i) 
 
-reffiles = [f for f in os.listdir(refdir) if f not in trgfiles] #Selects every file in the reference directory making sure to not accidentally select target files. Can also be manually configured as a list.
+if len(reffiles) == 0:
+    reffiles = [f for f in os.listdir(refdir) if f not in trgfiles] #Selects every file in the reference directory making sure to not accidentally select target files. Can also be manually configured as a list.
 reffiles = [f for f in reffiles if f not in badrefs] #Filters out specified bad reference files.
-
-ncores = 94 #Set number of cpu cores to be used.
 
 #Processes target and reference frames. It is written to be parallelizable. Follows 
 #"Post-processing of the HST STIS coronagraphic observations" by Ren et al. closely. Changes not advised. 
