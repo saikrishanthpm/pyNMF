@@ -1,7 +1,7 @@
 import os
 import math
 import warnings
-import radonCenter
+import radonCenteru
 import numpy as np
 import configparser
 import pandas as pd
@@ -104,7 +104,7 @@ def prep_frames_parallel(filename):
                     radius = math.sqrt(pow(vdist, 2) + pow(hdist, 2))
                     image_data_sc[x][i][j] = image_data_sc[x][i][j]*pow(radius, 0.5)
                 
-            (x_cen, y_cen) = radonCenter.searchCenter(image_data_sc[x], CRPIX1a[x], CRPIX2a[x], size_window = math.floor(NAXIS2/2),size_cost=7,theta=[45, 135]) 
+            (x_cen, y_cen) = radonCenteru.searchCenter(image_data_sc[x], CRPIX1a[x], CRPIX2a[x], size_window = math.floor(NAXIS2/2),size_cost=7,theta=[45, 135]) 
         
             image_data_sc[x] = image_data_sc[x]/EXPTIME
             
